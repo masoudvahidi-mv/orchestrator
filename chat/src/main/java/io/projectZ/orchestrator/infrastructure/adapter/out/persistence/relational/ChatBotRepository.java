@@ -6,11 +6,15 @@ package io.projectZ.orchestrator.infrastructure.adapter.out.persistence.relation
 */
 
 import io.projectZ.orchestrator.application.port.ChatBotPersistencePort;
-import io.projectZ.orchestrator.dao.JpaChatBotRepository;
+import io.projectZ.orchestrator.persistence.dao.JpaChatBotRepository;
 import io.projectZ.orchestrator.entity.ChatBot;
-import io.projectZ.orchestrator.entity.ChatBotEntity;
+import io.projectZ.orchestrator.persistence.entity.ChatBotEntity;
 import io.projectZ.orchestrator.infrastructure.adapter.out.persistence.mapper.ChatBotMapper;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
+
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Repository
 public class ChatBotRepository implements ChatBotPersistencePort {
@@ -32,6 +36,18 @@ public class ChatBotRepository implements ChatBotPersistencePort {
     }
 
     @Override
+    public List<ChatBot> getAll(Boolean enabled) {
+        List<ChatBotEntity> entityBotList;
+        if (enabled == null){
+            entityBotList = jpaChatBotRepository.findAll(Sort.by(Sort.Order.desc("insertTime")));
+        }
+        else {
+            entityBotList = jpaChatBotRepository.findAllByEnabledOrderByInsertTimeDesc(enabled);
+        }
+        return entityBotList.stream().map(ChatBotMapper.getInstance::entityToModel).collect(Collectors.toList());
+    }
+
+    @Override
     public void save(ChatBot chatBot) {
         ChatBotEntity chatBotEntity = ChatBotMapper.getInstance.modelToEntity(chatBot);
         jpaChatBotRepository.save(chatBotEntity);
@@ -45,7 +61,8 @@ public class ChatBotRepository implements ChatBotPersistencePort {
                 loadedChatBot.setName(chatBot.getName());
                 loadedChatBot.setEnabled(chatBot.isEnabled());
                 loadedChatBot.setPromptCode(chatBot.getPromptCode());
-                loadedChatBot.setScope(loadedChatBot.getScope());
+                loadedChatBot.setScope(chatBot.getScope());
+                loadedChatBot.setDescription(chatBot.getDescription());
                 jpaChatBotRepository.save(loadedChatBot);
             }else {
                 throw new RuntimeException("chatbot does not find : " + chatBot.getBotID());

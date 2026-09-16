@@ -5,80 +5,89 @@ package io.projectZ.orchestrator.application.service;
   Created : 7/5/2026 - 6:02 PM
 */
 
+import io.github.amirHFF.exceptions.DuplicateException;
+import io.github.amirHFF.exceptions.NotFoundException;
 import io.projectZ.orchestrator.application.port.ConversationPort;
 import io.projectZ.orchestrator.entity.Conversation;
-import io.projectZ.orchestrator.infrastructure.adapter.out.restClient.KeycloakAdminClient;
+import io.projectZ.orchestrator.infrastructure.adapter.out.restClient.KeycloakAdminClientTemp;
 import io.projectZ.orchestrator.infrastructure.adapter.out.restClient.UserRepresentation;
+import io.projectZ.orchestrator.infrastructure.config.ChatRequestFilter;
 import io.projectZ.orchestrator.infrastructure.config.SecurityConfig;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import io.projectZ.orchestrator.infrastructure.config.advice.ChatErrorCode;
+import io.projectZ.orchestrator.persistence.entity.ConversationTypeEnum;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.ThreadContext;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 
 @Service
 public class ConversationServiceImpl implements ConversationService {
-    private final static String jidPostfix = "@zchat.ir";
-    private final ConversationPort conversationPort;
-    private final KeycloakAdminClient keycloakAdminClient;
 
-    public ConversationServiceImpl(ConversationPort conversationPort, KeycloakAdminClient keycloakAdminClient) {
+    private final Logger logger = LogManager.getLogger(ConversationServiceImpl.class);
+
+    private final ConversationPort conversationPort;
+    private final KeycloakAdminClientTemp keycloakAdminClientTemp;
+
+    public ConversationServiceImpl(ConversationPort conversationPort, KeycloakAdminClientTemp keycloakAdminClientTemp) {
         this.conversationPort = conversationPort;
-        this.keycloakAdminClient = keycloakAdminClient;
+        this.keycloakAdminClientTemp = keycloakAdminClientTemp;
     }
 
     @Override
-    public List<Conversation> getAllConversationsByJid(String jid) {
-        if (jid == null) {
+    public List<Conversation> getAllConversationsByUsername(String username) {
+        if (username == null) {
             throw new IllegalArgumentException("jid is null");
         }
-        if (!jid.contains(jidPostfix)) {
-            jid = jid.concat(jidPostfix);
-        }
 
-        List<Conversation> conversations = conversationPort.getConversations(jid, jid);
+        List<Conversation> conversations = conversationPort.getAllConversationsByUsername(username);
         conversations.sort(Comparator.comparing(Conversation::getLastMessageTime));
         return conversations;
     }
 
     @Override
-    public void saveOrUpdate(Conversation conversation) {
+    @Transactional
+    public void save(Conversation conversation) {
         if (conversation != null) {
-            if (!conversation.getParticipants().isEmpty()) {
+            long start= System.currentTimeMillis();
+            List<Conversation> loadedConversations = conversationPort.getAllConversationsByParticipants(conversation.getParticipants());
+            long end= System.currentTimeMillis();
+            System.out.println("executionTim = "+ (end -start));
+            if (loadedConversations !=null && !loadedConversations.isEmpty()){
+                throw new DuplicateException(ChatErrorCode.DUPLICATE_CONVERSATION);
+            }
 
+            if (!conversation.getParticipants().isEmpty()) {
+                String currentUsername = SecurityConfig.getCurrentUsername();
                 for (String participant : conversation.getParticipants()) {
-                    if (participant.contains(jidPostfix)){
-                        participant = participant.replace(jidPostfix , "");
-                    }
-                    List<UserRepresentation> result = keycloakAdminClient.findByUsername(participant, SecurityConfig.API_TOKEN);
-                    if (result.size() == 0) {
-                        throw new IllegalArgumentException("user does not have exist : " + conversation.getParticipants().get(0));
+                    if (!currentUsername.equals(participant)) {
+                        List<UserRepresentation> result = keycloakAdminClientTemp.findByUsername(participant, SecurityConfig.API_TOKEN);
+                        if (result.size() == 0) {
+                            logger.error("username does not have exist for adding as a participant , username {}",participant);
+                            throw new NotFoundException(ChatErrorCode.USER_NAME_NOT_FOUND);
+                        }
                     }
                 }
-
-                conversation.setParticipants(
-                        conversation.getParticipants().stream()
-                                .map(participant ->
-                                        participant.endsWith(jidPostfix)
-                                                ? participant
-                                                : participant + jidPostfix
-                                )
-                                .collect(Collectors.toList())
-                );
+                logger.info("conversation is saving ...");
+                if (conversation.getParticipants().size()==2){
+                    conversation.setConversationType(ConversationTypeEnum.CHAT);
+                }
+                conversationPort.save(conversation);
             }
         }
-        Conversation loadedConversation = conversationPort.getById(conversation.getId());
-        if (loadedConversation == null) {
-            conversationPort.save(conversation);
-        } else if (!loadedConversation.getLastMessage().equals(conversation.getLastMessage())) {
-            loadedConversation.setLastMessage(conversation.getLastMessage());
-            conversationPort.update(loadedConversation);
-        }
     }
+
+    @Override
+    public void update(Conversation conversation) {
+
+    }
+
 }
 

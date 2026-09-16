@@ -23,7 +23,7 @@ public class BotIdentifierGenerator {
             "drift", "nova", "pulse", "orbit", "wave",
             "flame", "storm", "shard", "beam", "nebula"
     };
-    protected static final String PREFIX = "BOT";
+    protected static final String PREFIX = "bot";
 
     private static final String ALPHANUM = "abcdefghijklmnopqrstuvwxyz0123456789";
     private static final int RAND_LEN = 4;
@@ -32,10 +32,10 @@ public class BotIdentifierGenerator {
     private static final SecureRandom random = new SecureRandom();
 
     public static String generateRaw() {
-        String adj = pick(ADJECTIVES);
+//        String adj = pick(ADJECTIVES);
         String noun = pick(NOUNS);
         String rand = randomString(RAND_LEN);
-        return String.format("%s-%s-%s-%s", PREFIX, adj, noun, rand);
+        return String.format("%s-%s-%s", PREFIX, noun, rand);
     }
 
     private static String pick(String[] pool) {
